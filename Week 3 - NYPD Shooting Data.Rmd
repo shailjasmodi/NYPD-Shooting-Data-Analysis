@@ -1,0 +1,467 @@
+---
+title: "NYPD Shooting Data Analysis"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Description of Data
+This data set contains a list of NYPD shooting incidents that occurred between 2006 and 2020. Each record contains details on when and where the shooting occurred as well as details about the victim and prep. 
+
+
+# Install Tasks 
+Ensure the following tasks are installed prior to running the code. 
+1. tinytex::install_tinytex(version = "latest")
+2. install.packages("tidyverse")
+3. install.packages("ggplot2")
+
+
+# Load Libraries
+The following libraries will be required to successfully reproduce the data.  
+```{r load lib}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+
+# Step 1: Import Data
+Goal: Start an Rmd document that describes and imports the shooting project data set in a reproducible manner.
+
+1. Import Data into Rmd
+```{r add data set} 
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shooting_data <- read_csv(url_in[1])
+```
+
+```{r confirm data import}
+
+
+shooting_data
+```
+
+
+# Step 2: Tidy & Transform Data
+Goal: Add to your Rmd document a summary of the data and clean up your dataset by changing appropriate variables to factor and date types and getting rid of any columns not needed.  Show the summary of your data to be sure there is no missing data. If there is missing data, describe how you plan to handle it.
+
+
+1. After the data is added, we want to remove columns that we don't want to analyze.
+* Removed 14 columns 
+```{r clean up columns}
+shooting_data <- shooting_data %>%select(cols=-c('STATISTICAL_MURDER_FLAG','PERP_AGE_GROUP','PERP_SEX','PERP_RACE','VIC_RACE','X_COORD_CD','Y_COORD_CD','Latitude','Longitude','Lon_Lat'))
+shooting_data <- shooting_data %>%select(cols=-c('INCIDENT_KEY','LOCATION_DESC','PRECINCT','JURISDICTION_CODE'))
+shooting_data
+```
+
+2. From Step 2, we notice that the OCCURED_DATE is in char format. We will transform this to the date format. 
+* Note: To do this, the library(lubridate) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+```{r convert date}
+shooting_data <- shooting_data %>% 
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+shooting_data
+```
+
+
+
+3. Create two new columns which will be used for analysis further below 
+* Introduce a year column based on the OCCUR_DATE column 
+* Introduce a time of day column based on the OCCUR_TIME column 
+* view what the data looks like 
+```{r year column}
+shooting_data$year <- year(shooting_data$OCCUR_DATE)
+
+shooting_data$hour <- hour(shooting_data$OCCUR_TIME)
+
+shooting_data
+
+```
+
+
+4. Rename columns and look at summary
+* The OCCUR_DATE, OCCUR_TIME, BORO, VIC_AGE_GROUP, VIC_SEX, year and hour column names were updated to easily read the data. 
+* Pulled summary of data 
+** we have not lost any chunks of data however additional analysis will be completed below to find null or unknown values 
+** the date was successfully converted from char to date format 
+** the year was successfully implemented because the min year and max year match the min and max year within the OCCUR_DATE column 
+** The only 0 values are in Hour_of_Day and this makes sense because the 0th hour is the time between 12am - 12:59am
+```{r rename columns}
+names(shooting_data)[1] <- "Date"
+names(shooting_data)[2] <- "Time"
+names(shooting_data)[3] <- "Neighborhood"
+
+names(shooting_data)[4] <- "Victim_Age_Group"
+names(shooting_data)[5] <- "Victim_Sex"
+names(shooting_data)[6] <- "Year"
+names(shooting_data)[7] <- "Hour_of_Day"
+
+
+summary(shooting_data)
+
+
+```
+
+
+
+
+5. Group by neighborhood, victim age group, vistim sex, year and hour of the day to determine number of shootings in each unique category. This will be further broken down in the analysis section further down. 
+* Complete count by Neighborhood,Victim_Age_Group, Victim_Sex, Year, Hour_of_Day
+* Assign column name "Shooting_Incident" 
+* assign this table to a new dataframe called gb_shooting_data 
+* view gb_shooting_data
+```{r group}
+
+gb_shooting_data <- shooting_data %>% count(Neighborhood, Victim_Age_Group, Victim_Sex, Year, Hour_of_Day, sort = TRUE)
+
+names(gb_shooting_data)[6] <- "Shooting_Incident"
+
+
+gb_shooting_data
+
+
+```
+
+
+6. Clean up unknown values because they can skew findings 
+* Check if there's any unknown values
+* Filter out any data points with unknown values 
+```{r text}
+
+gb_shooting_data_clean <- filter(gb_shooting_data, Neighborhood != "UNKNOWN" & Victim_Age_Group != "UNKNOWN" & Victim_Sex != "U" & Year != "UNKNOWN" & Hour_of_Day != "UNKNOWN")
+```
+
+
+
+7. confirm that unknowns are gone, we should see an empty list if there are no unknowns
+```{r unknown check}
+filter(gb_shooting_data_clean, Victim_Age_Group =="UNKNOWN")
+
+```
+
+
+
+8. Review summary 
+* all unknown values are removed 
+* no values are missing 
+* Hour_of_Day is based on a 24 hour clock so the minimum of 0 means any time between 12:00am - 12:59am and maximum of 23 means any time between 11:00pm to 11:59pm. 
+```{r gb_shooting_data_clean summary}
+summary(gb_shooting_data_clean)
+```
+
+
+# Step 3: Add Visulaizations and Analysis 
+
+## Research Questions
+1. Which neighborhood in New York has the most shooting incidents? How do shooting incidents change over time? 
+2. How do shooting incidents vary by age for men and women? 
+3. Is hour of day related to shooting incidents? 
+
+## Visualization for Research Question 1 
+
+**Which neighborhood in New York has the most shooting incidents? How do shooting incidents change over time?** 
+
+
+1. Create a data frame for number of shootings by neighborhood for each year. 
+* Group by year and neighborhood
+* Sum shooting incidents
+* Store in a new dataframe called df_vis1
+```{r df_vis1}
+df_vis1 <- gb_shooting_data_clean %>% group_by(Year, Neighborhood) %>% summarise(Shooting_Incidents=sum(Shooting_Incident))
+```
+
+2. Rename the columns
+* Renamed count (n) to Shooting_Incidents 
+```{r df_vis1 table}
+summary(df_vis1)
+```
+
+
+3. Review maximum for Shooting_Incidents to determine if 848 makes sense.
+* There are many responses returned which indicates that this was not a typo 
+```{r df_vis1 max}
+
+df_vis1 %>% filter(Shooting_Incidents > 750.00)
+
+
+```
+
+4. Create a Visualization 
+*Create and store the graph in a variable
+** Note: To do this, the library(ggplot2) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+*Call the graph to view it
+```{r visualization 1}
+
+ln_plot_vis1 <- ggplot(df_vis1, aes(x=Year, y=Shooting_Incidents, group=Neighborhood)) + geom_line(aes(color=Neighborhood)) + geom_point(aes(color=Neighborhood)) + theme_classic()
+
+ln_plot_vis1
+```
+
+## Analysis for Research Question 1 
+There appears to be a clear distinction in number of shootings by neighborhood throughout the years. At no point, do any of the lines cross each other which tells me that on average, Brooklyn sees the most shootings out of all of these neighborhoods. 2020 saw a significant increases in shootings which may be a skew however they may be due to the riots that took place in 2020. 
+
+
+
+
+## Visualization for Research Question 2 
+
+**How do shooting incidents vary by age for men and women?**
+
+
+1. Create a data frame for number of shootings by age and sex
+* group by victim age and victim sex
+* sum the shooting incidents
+* store in a new data frame called df_vis2
+```{r group by for vi2}
+df_vis2 <- gb_shooting_data_clean %>% group_by(Victim_Age_Group, Victim_Sex) %>% summarise(Shooting_Incidents=sum(Shooting_Incident))
+```
+
+2. Rename the column
+* Rename count (n) to Shooting_Incidents 
+```{r df_vis2 table}
+summary(df_vis2)
+```
+
+3. Review maximum for Shooting_Incidents to determine if 9484 makes sense.
+* There are a handful of responses returned which indicates that this was not a typo 
+```{r df_vis2 max}
+
+df_vis2 %>% filter(Shooting_Incidents > 8000.00)
+
+```
+
+
+4. Create a Visualization 
+*Create and store the graph in a variable
+** Note: To do this, the library(ggplot2) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+*Call the graph to view it
+```{r df_vis2 visualization}
+n_plot_vis2 <- ggplot(df_vis2, aes(x=Victim_Age_Group, y=Shooting_Incidents, group=Victim_Sex)) +
+    geom_line(aes(color=Victim_Sex))+
+    geom_point(aes(color=Victim_Sex))+
+    theme_classic()
+n_plot_vis2
+```
+
+## Analysis for Research Question 2 
+There appears to be a stark difference in number of shooting incidents for men based on their age. The highest number of shootings appear to occur for men in the 25-44 age group. This makes sense because men in that age group are more likely to live in regions with higher shooting incidents. The number of shooting incidents where the victim is male drops significantly for men in the 45-64 age group because that age group tends to move towards the suburbs of the city where there are less shooting incidents (ex: Staten Island). On the other hand, women appear to be victims of shooting incidents at a consistent rate throughout their life span. 
+
+
+
+## Model for Research Question 3
+
+**Is hour of day related to shooting incidents?**
+
+### Build a Model & Visualize 
+
+1. Create a data frame for number of shootings by hour of the day
+* Group by hour of the day
+* Sum the shootings 
+* Assign this to the data frame df_vis3 
+```{r df_vis3}
+
+df_vis3 <- gb_shooting_data_clean %>% group_by(Hour_of_Day) %>% summarise(Shooting_Incidents=sum(Shooting_Incident))
+df_vis3
+```
+
+2. Create the model 
+```{r model}
+mod <- lm(Shooting_Incidents ~ Hour_of_Day, data = df_vis3)
+```
+
+
+3. summarize the model 
+```{r model summary}
+summary(mod)
+```
+
+
+
+4. interpret 
+in this scenario, my shooting incidents are 844 + 11 times the time of day 
+
+
+5. add Predictions 
+```{r predictions}
+
+df_vis3 %>% mutate(Predictions = predict(mod))
+
+```
+
+6. create a new data set to see the predictions 
+* New data frame is called df_vis_w_pred
+```{r predictions DF}
+
+df_vis3_w_pred <- df_vis3 %>% mutate(Predictions = predict(mod))
+
+
+df_vis3_w_pred
+
+```
+
+
+7. plot the data to see how we're doing 
+* Note: To do this, the library(ggplot2) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+```{r plot model}
+
+df_vis3_w_pred %>% ggplot() +
+  geom_point(aes(x = Hour_of_Day, y = Shooting_Incidents), color = "blue") + 
+  geom_point(aes(x = Hour_of_Day, y = Predictions), color = "red")
+
+```
+
+### Analysis for Model 
+Shooting incidents appear to peak overnight and dip in the morning. This parabola makes it seem as though hour of the day doesn't impact shooting incidents however that's not the case. Lets break this out to look at the first half of the day and the second half of the day.
+
+From the below graphs, we can see that in the first half of the day, hour of day is predictive of shooting incidents. The shooting incidents decrease towards noon because:
+* In the early morning, some folks may be outdoors or socializing and venues are still open. 
+* As we approach 4-5am there's a large drop because most folks have gone home to sleep. 
+
+For the second half of the day, hour of day is predictive of shooting incidents as well however the tred is in the opposite direction. The shooting incidents increase towards midnight because: 
+* In the afternoon, folks who slept late or slept in are waking up 
+* Public venues are now open 
+* As we approach the end of the working day (5pm), folks are going out to socialize after work 
+
+
+
+
+#### First Half of the Day
+1. Create a data frame for number of shootings during the first half of the day 
+* Filter for first half of the day hours
+* Group by hour of the day
+* Sum the shootings 
+* Assign this to the data frame df_vis3 
+```{r df_vis4}
+
+gb_shooting_data_clean_morning <- gb_shooting_data_clean %>% filter(Hour_of_Day < 12)
+
+df_vis4 <- gb_shooting_data_clean_morning %>% group_by(Hour_of_Day) %>% summarise(Shooting_Incidents=sum(Shooting_Incident))
+df_vis4
+```
+
+2. Create the model 
+```{r model1}
+mod1 <- lm(Shooting_Incidents ~ Hour_of_Day, data = df_vis4)
+```
+
+
+3. summarize the model 
+```{r model1 summary}
+summary(mod1)
+
+```
+
+4. add Predictions 
+```{r predictions1}
+
+df_vis4 %>% mutate(Predictions = predict(mod1))
+
+```
+
+
+5. create a new data set to see the predictions 
+* New data frame is called df_vis_w_pred
+```{r predictions1 DF}
+
+df_vis4_w_pred <- df_vis4 %>% mutate(Predictions = predict(mod1))
+
+
+df_vis4_w_pred
+
+```
+
+
+6. plot the data to see how we're doing 
+* Note: To do this, the library(ggplot2) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+```{r plot model1}
+
+df_vis4_w_pred %>% ggplot() +
+  geom_point(aes(x = Hour_of_Day, y = Shooting_Incidents), color = "blue") + 
+  geom_point(aes(x = Hour_of_Day, y = Predictions), color = "red")
+
+```
+
+#### Second Half of the Day 
+
+1. Create a data frame for number of shootings for second half of the day 
+* Filter for second half of the day hours
+* Group by hour of the day
+* Sum the shootings 
+* Assign this to the data frame df_vis3 
+```{r df_vis5}
+
+gb_shooting_data_clean_night <- gb_shooting_data_clean %>% filter(Hour_of_Day >= 12)
+
+df_vis5 <- gb_shooting_data_clean_night %>% group_by(Hour_of_Day) %>% summarise(Shooting_Incidents=sum(Shooting_Incident))
+df_vis5
+```
+
+2. Create the model 
+```{r model2}
+mod2 <- lm(Shooting_Incidents ~ Hour_of_Day, data = df_vis5)
+```
+
+
+3. summarize the model 
+```{r model2 summary}
+summary(mod2)
+
+```
+
+
+4. Add Predictions 
+```{r predictions2}
+
+df_vis5 %>% mutate(Predictions = predict(mod2))
+
+```
+
+
+5. create a new data set to see the predictions 
+* New data frame is called df_vis_w_pred
+```{r predictions2 DF}
+
+df_vis5_w_pred <- df_vis5 %>% mutate(Predictions = predict(mod2))
+
+
+df_vis5_w_pred
+
+```
+
+
+6. plot the data to see how we're doing 
+* Note: To do this, the library(ggplot2) must be successfully loaded from the Load R Packages section at the beginning of the document. 
+```{r plot model2}
+
+df_vis5_w_pred %>% ggplot() +
+  geom_point(aes(x = Hour_of_Day, y = Shooting_Incidents), color = "blue") + 
+  geom_point(aes(x = Hour_of_Day, y = Predictions), color = "red")
+
+```
+
+## Conclusion 
+* There appears to be a clear distinction in number of shootings by neighborhood throughout the years.
+* Men are more likely to be victims of shooting incident than women 
+* In the first half of the day, as you approach noon, the chance of a shooting incident decreases 
+* In the second half of the day, as you approach midnight, the change of a shooting incident increases 
+
+# Step 4: Identifying Bias 
+Some possible sources of bias are:
+1. Selection bias 
+2. Confirmation bias 
+
+Selection bias occurs when the data under represents certain people or groups. In our case, the shooting data is based on government data on NYPD shootings. This doesn't take into account non citizen shootings because those people are not likely to inform or file a police report. 
+
+Confirmation bias occurs when during the analysis of data, the investigator looks for patterns of data that confirm their ideas. For me, this is an example of personal bias because I believed that Bronx would have the highest shooting incidents because I thought it was not safe through  the news stories and TV shows. I mitigated this bias by checking maximums and comparing the Bronx data to other neighborhoods to ensure that the interpretation of shooting incidents is as accurate as possible. 
+
+
+# Resources
+* NYPD Shooting Data (Historic)
+
+
+
+# Appendix
+```{r session info}
+
+
+sessionInfo()
+
+```
